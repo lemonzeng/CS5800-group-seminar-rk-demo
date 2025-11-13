@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Rabin–Karp Rolling Hash (final-mod)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<!-- MathJax for pretty formulas -->
+<script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+<script id="MathJax-script" async
+  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
+</script>
+<style>
+  :root{
+    --bg:#f7f1e5; --card:#fffaf0; --ink:#2a2a2a; --muted:#6b6b6b;
+    --accent:#7a64e8; --accent2:#e8e1ff; --ok:#1a7f37; --warn:#b54708;
+  }
+  html,body{height:100%;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"Segoe UI",Helvetica,Arial,sans-serif;display:grid;place-items:center;padding:40px 20px;}
+  .container{max-width:1080px;width:100%;background:var(--card);border:1px solid #ecdcc6;box-shadow:0 6px 22px rgba(0,0,0,.08);border-radius:18px;padding:28px 32px;}
+  .grid{display:grid;grid-template-columns:1.2fr 1fr;gap:28px;}
+  h1{margin:0 0 14px;font-size:20px;color:#5b4bb0;text-align:center;}
+  .panel{background:#fffef8;border:1px solid #f1e6cf;border-radius:14px;padding:18px;}
+  .track{display:flex;justify-content:center;gap:12px;margin:12px 0 10px;font-weight:700;font-size:20px;}
+  .cell{width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:8px;transition:all .25s ease;}
+  .window{background:var(--accent2);outline:2px solid var(--accent);}
+  .controls{display:flex;justify-content:center;gap:10px;margin:10px 0 6px;}
+  button{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:8px 14px;cursor:pointer;font-weight:600;}
+  button:disabled{opacity:.55;cursor:not-allowed;}
+  .row{display:flex;justify-content:center;gap:18px;flex-wrap:wrap;margin-top:6px;}
+  .kv{font-family:ui-monospace,Menlo,Consolas,"Courier New",monospace;font-size:14px;}
+  .kv .muted{color:var(--muted);}
+  .ok{color:var(--ok);font-weight:700;}
+  .bad{color:var(--warn);font-weight:700;}
+  .math{background:#f8f6ff;border:1px dashed #e0d8ff;border-radius:10px;padding:10px 14px;margin-top:10px;min-height:48px;}
+  .legend{text-align:center;font-size:13px;color:var(--muted);margin-top:6px;}
+  @media (max-width:940px){.grid{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="grid">
+      <!-- Left: Interactive track -->
+      <div class="panel">
+        <h1>Rabin–Karp Rolling Hash (Final-mod)</h1>
+        <div class="row kv">
+          <div>Text:&nbsp;<span id="textRaw"></span></div>
+          <div>Pattern:&nbsp;<span id="patRaw"></span></div>
+        </div>
+        <div class="row kv">
+          <div>n: <b id="lenN"></b></div>
+          <div>base: <b id="baseVal"></b></div>
+          <div>mod: <b id="modVal"></b></div>
+          <div>H<sub>p</sub>: <b id="hpMod"></b></div>
+        </div>
+
+        <div id="track" class="track"></div>
+
+        <div class="controls">
+          <button id="prevBtn">◀ Prev</button>
+          <button id="nextBtn">Next ▶</button>
+          <button id="playBtn">▶ Play</button>
+          <button id="pauseBtn" disabled>⏸ Pause</button>
+        </div>
+
+        <div class="row kv">
+          <div>Index i: <b id="idx"></b></div>
+          <div>Window: <b id="winStr"></b></div>
+        </div>
+        <div class="row kv">
+          <div>H<sub>i</sub>: <b id="hiMod"></b></div>
+          <div>Match? <span id="match"></span></div>
+        </div>
+      </div>
+
+      <!-- Right: Math area -->
+      <div class="panel">
+        <h1>Rolling Update</h1>
+        <div id="formula" class="math">Loading…</div>
+        <div id="explain" class="math"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  // ===== Parameters =====
+  const base = 256n;   // b
+  const mod  = 101n;   // m
+  const text = "ABACABBABAC";
+  const pattern = "ABA";
+
+  // ===== DOM =====
+  const trackEl  = document.getElementById('track');
+  const textRaw  = document.getElementById('textRaw');
+  const patRaw   = document.getElementById('patRaw');
+  const lenNEl   = document.getElementById('lenN');
+  const baseVal  = document.getElementById('baseVal');
+  const modVal   = document.getElementById('modVal');
+  const hpModEl  = document.getElementById('hpMod');
+  const idxEl    = document.getElementById('idx');
+  const winStrEl = document.getElementById('winStr');
+  const hiModEl  = document.getElementById('hiMod');
+  const matchEl  = document.getElementById('match');
+  const formulaEl= document.getElementById('formula');
+  const explainEl= document.getElementById('explain');
+  const prevBtn  = document.getElementById('prevBtn');
+  const nextBtn  = document.getElementById('nextBtn');
+  const playBtn  = document.getElementById('playBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+
+  // Basic info
+  textRaw.textContent = text;
+  patRaw.textContent  = pattern;
+  lenNEl.textContent  = pattern.length;
+  baseVal.textContent = String(base);
+  modVal.textContent  = String(mod);
+
+  // ===== Helpers =====
+  const code = c => BigInt(c.charCodeAt(0)); // ASCII -> BigInt
+  const pow  = (b, e) => b ** e;             // BigInt power
+  const toStr= (x) => x.toString();
+
+  const n = pattern.length;
+  const N = text.length;
+
+  // b^(n-1) mod m  —— 在模域内使用
+  const bPowM = pow(base, BigInt(n - 1));
+
+  // 计算模式串哈希（逐步取模构建）
+  function polyHashMod(str) {
+    let h = 0n;
+    for (let i = 0; i < str.length; i++) {
+      h = (base * h + code(str[i])) % mod;
+    }
+    return (h + mod) % mod;
+  }
+
+  // 将 text 的首个窗口哈希按“逐步取模”计算
+  function windowHashMod(s, start, len) {
+    let h = 0n;
+    for (let i = 0; i < len; i++) {
+      h = (base * h + code(s[start + i])) % mod;
+    }
+    return (h + mod) % mod;
+  }
+
+  const Hp = polyHashMod(pattern);
+  hpModEl.textContent = toStr(Hp);
+
+  // 预生成所有 H_i（每步取模）
+  const H = [];
+  H[0] = windowHashMod(text, 0, n);
+  for (let i = 0; i < N - n; i++) {
+    const s_i   = code(text[i]);       // old
+    const s_in  = code(text[i + n]);   // new
+    // H_{i+1} = ( b*(H_i - s_i*b^{n-1}) + s_{i+n} ) mod m
+    const next = (base * ((H[i] - (s_i * bPowM) % mod + mod) % mod) + s_in) % mod;
+    H[i + 1] = (next + mod) % mod;
+  }
+
+  // Build track UI
+  const cells = text.split("").map(ch => {
+    const d = document.createElement('div');
+    d.className = 'cell';
+    d.textContent = ch;
+    trackEl.appendChild(d);
+    return d;
+  });
+
+  // Render one step
+  let i = 0, timer = null;
+  function render(step) {
+    i = step;
+
+    // window highlight
+    cells.forEach(c => c.classList.remove('window'));
+    for (let k = 0; k < n; k++) {
+      if (i + k < cells.length) cells[i + k].classList.add('window');
+    }
+
+    const win = text.slice(i, i + n);
+    const Hi  = H[i];
+
+    idxEl.textContent = i;
+    winStrEl.textContent = `"${win}"`;
+    hiModEl.textContent  = toStr(Hi);
+
+    const match = (Hi === Hp) && (win === pattern);
+    matchEl.innerHTML = match
+      ? '<span class="ok">YES (hash== & text==)</span>'
+      : (Hi === Hp ? '<span class="bad">hash equal → verify chars</span>' : '<span class="muted">no</span>');
+
+    // Right-side formulas
+    if (i < N - n) {
+      const oldC = text[i];
+      const newC = text[i + n];
+      const next = H[i + 1];
+
+      const sym = String.raw`H_{${i+1}} = \big(b \times (H_{${i}} - s_{${i}} \times b^{n-1}) + s_{${i+n}}\big)\bmod ${mod}`;
+      const num = String.raw`H_{${i+1}} = \big(${base}\times (${Hi} - ${code(oldC)}\times 256^{2}) + ${code(newC)}\big)\bmod ${mod} = ${next}`;
+
+      formulaEl.innerHTML = `$$${sym}$$`;
+      explainEl.innerHTML = `
+        $$${num}$$
+      `;
+    } else {
+      formulaEl.textContent = "— end —";
+      explainEl.textContent = "";
+    }
+
+    if (window.MathJax && MathJax.typesetPromise) {
+      MathJax.typesetPromise();
+    }
+
+    prevBtn.disabled = (i === 0);
+    nextBtn.disabled = (i >= N - n);
+  }
+
+  // Controls
+  function goPrev(){ render(Math.max(0, i - 1)); }
+  function goNext(){ render(Math.min(N - n, i + 1)); }
+  function play(){
+    playBtn.disabled = true; pauseBtn.disabled = false;
+    timer = setInterval(() => {
+      if (i >= N - n) { pause(); return; }
+      goNext();
+    }, 800);
+  }
+  function pause(){
+    if (timer) clearInterval(timer);
+    playBtn.disabled = false; pauseBtn.disabled = true;
+  }
+
+  prevBtn.addEventListener('click', goPrev);
+  nextBtn.addEventListener('click', goNext);
+  playBtn.addEventListener('click', play);
+  pauseBtn.addEventListener('click', pause);
+
+  // initial render
+  render(0);
+})();
+</script>
+</body>
+</html>
