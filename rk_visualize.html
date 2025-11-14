@@ -84,8 +84,8 @@
 <script>
 (function () {
   // ===== Parameters =====
-  const base = 256n;   // b
-  const mod  = 101n;   // m
+  const base = 10n;   // b
+  const mod  = 13n;   // m
   const text = "ABACABBABAC";
   const pattern = "ABA";
 
@@ -116,7 +116,12 @@
   modVal.textContent  = String(mod);
 
   // ===== Helpers =====
-  const code = c => BigInt(c.charCodeAt(0)); // ASCII -> BigInt
+  function code(c) {
+    if (c === 'A') return 1n;
+    if (c === 'B') return 2n;
+    if (c === 'C') return 3n;
+    throw new Error("Unsupported character: " + c);
+  }
   const pow  = (b, e) => b ** e;             // BigInt power
   const toStr= (x) => x.toString();
 
@@ -197,7 +202,7 @@
       const next = H[i + 1];
 
       const sym = String.raw`H_{${i+1}} = \big(b \times (H_{${i}} - s_{${i}} \times b^{n-1}) + s_{${i+n}}\big)\bmod ${mod}`;
-      const num = String.raw`H_{${i+1}} = \big(${base}\times (${Hi} - ${code(oldC)}\times 256^{2}) + ${code(newC)}\big)\bmod ${mod} = ${next}`;
+      const num = String.raw`H_{${i+1}} = \big(${base}\times (${Hi} - ${code(oldC)}\times 10^{2}) + ${code(newC)}\big)\bmod ${mod} = ${next}`;
 
       formulaEl.innerHTML = `$$${sym}$$`;
       explainEl.innerHTML = `
