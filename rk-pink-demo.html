@@ -237,6 +237,11 @@
 
   <script>
     const delay = ms => new Promise(r => setTimeout(r, ms));
+    
+    // Different delays for different operations
+    const HASH_CHECK_DELAY = 80;      // Fast - hash comparison is O(1)
+    const CHAR_COMPARE_DELAY = 40;    // Per character comparison
+    const MATCH_FOUND_DELAY = 120;    // Pause when match is found
 
     async function visualize() {
       const text = document.getElementById('textInput').value;
@@ -276,7 +281,7 @@
         runRabinKarp()
       ]);
 
-      // Naive Search
+      // Naive Search - must compare all characters at each position
       async function runNaive() {
         let start = performance.now();
         let matches = [];
@@ -286,12 +291,15 @@
           const progress = ((i/(n-m))*100).toFixed(1);
           naiveBar.style.width = progress + '%';
           naiveBar.textContent = progress + '%';
-          await delay(200);
+          
+          // Naive always does character-by-character comparison
+          // Simulate comparing m characters (slower)
+          await delay(CHAR_COMPARE_DELAY * m);
           
           if(text.slice(i,i+m) === pattern) {
             matches.push(i);
             render(naiveEl, -1, i);
-            await delay(150);
+            await delay(MATCH_FOUND_DELAY);
           }
         }
         
@@ -305,7 +313,7 @@
         };
       }
 
-      // Rabin-Karp Search
+      // Rabin-Karp Search - hash check is fast, verification is slow
       async function runRabinKarp() {
         let start = performance.now();
         let base = 256, mod = 101;
@@ -328,13 +336,20 @@
           const progress = ((i/(n-m))*100).toFixed(1);
           rkBar.style.width = progress + '%';
           rkBar.textContent = progress + '%';
-          await delay(100); // Faster than naive
           
-          if(p === t && text.slice(i,i+m) === pattern) {
-            matches.push(i);
-            render(rkEl, -1, i);
-            await delay(100);
+          // Hash check is fast O(1)
+          await delay(HASH_CHECK_DELAY);
+          
+          if(p === t) {
+            // Hash matches - need to verify with character comparison
+            await delay(CHAR_COMPARE_DELAY * m);
+            if(text.slice(i,i+m) === pattern) {
+              matches.push(i);
+              render(rkEl, -1, i);
+              await delay(MATCH_FOUND_DELAY);
+            }
           }
+          // If hash doesn't match, skip verification - this is the advantage!
           
           if(i < n-m) {
             t = (base * (t - text.charCodeAt(i) * h) + text.charCodeAt(i+m)) % mod;
@@ -360,8 +375,10 @@
       let winner = '';
       if (rkResult.time < naiveResult.time) {
         winner = '<div class="winner">🏆 Rabin-Karp Wins!</div>';
-      } else {
+      } else if (rkResult.time > naiveResult.time) {
         winner = '<div class="winner">🏆 Naive Wins!</div>';
+      } else {
+        winner = '<div class="winner">🤝 It\'s a Tie!</div>';
       }
 
       resultsEl.innerHTML = `
